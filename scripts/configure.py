@@ -10,12 +10,21 @@ from urllib.parse import urlsplit
 
 
 FIELDS = ("app_name", "id_server", "relay_server", "api_server", "key")
+POLICY_DEFAULTS = {
+    "hide_powered_by": True,
+    "lock_server_settings": True,
+    "simplify_about": True,
+}
 
 
 def validate(config: dict) -> dict:
     if any(not isinstance(config.get(field, ""), str) for field in FIELDS):
         raise ValueError("Client configuration fields must be strings")
+    policies = {field: config.get(field, default) for field, default in POLICY_DEFAULTS.items()}
+    if any(not isinstance(value, bool) for value in policies.values()):
+        raise ValueError("Client policy fields must be JSON booleans (true or false)")
     config = {field: config.get(field, "").strip() for field in FIELDS}
+    config.update(policies)
     name = config["app_name"]
     # Safe across Windows services, WiX, macOS paths, XML and shell packaging.
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", name):
@@ -85,11 +94,41 @@ def apply(source: Path, raw_config: dict):
         options["relay-server"] = config["relay_server"]
     if config["api_server"]:
         options["api-server"] = config["api_server"]
-    entries = ",\n".join(f"        ({rust_string(k)}.to_owned(), {rust_string(v)}.to_owned())" for k, v in options.items())
-    old = "pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = Default::default();"
-    new = "pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(HashMap::from([\n" + entries + "\n    ]));"
-    text = replace_one(text, old, new, config_path)
+    fixed = {
+        "custom-rendezvous-server": config["id_server"],
+        "relay-server": config["relay_server"],
+        "api-server": config["api_server"],
+        "key": config["key"],
+    } if config["lock_server_settings"] else {}
+    builtin = {}
+    if config["hide_powered_by"]:
+        builtin["hide-powered-by-me"] = "Y"
+    if config["lock_server_settings"]:
+        builtin.update({"hide-server-settings": "Y", "allow-deep-link-server-settings": "N"})
+    if config["simplify_about"]:
+        builtin["simplify-about"] = "Y"
+    for setting, values in (("DEFAULT_SETTINGS", options), ("OVERWRITE_SETTINGS", fixed), ("BUILTIN_SETTINGS", builtin)):
+        if not values:
+            continue
+        entries = ",\n".join(f"        ({rust_string(k)}.to_owned(), {rust_string(v)}.to_owned())" for k, v in values.items())
+        old = f"pub static ref {setting}: RwLock<HashMap<String, String>> = Default::default();"
+        new = f"pub static ref {setting}: RwLock<HashMap<String, String>> = RwLock::new(HashMap::from([\n" + entries + "\n    ]));"
+        text = replace_one(text, old, new, config_path)
     config_path.write_text(text, encoding="utf-8")
+
+    # Keep Windows executable-name server shortcuts from overriding fixed servers.
+    if config["lock_server_settings"]:
+        path = source / "src/platform/windows.rs"
+        text = path.read_text(encoding="utf-8")
+        old = "pub fn get_license_from_exe_name() -> ResultType<CustomServer> {\n"
+        new = old + '''    if config::OVERWRITE_SETTINGS.read().unwrap().contains_key("custom-rendezvous-server") {
+        bail!("Server settings are fixed by this client");
+    }
+'''
+        path.write_text(replace_one(text, old, new, path), encoding="utf-8")
+
+    from client_policy import apply_interface_policy
+    apply_interface_policy(source, config)
 
     # Native display metadata. Keep executable/library/bundle identifiers and official
     # packaging paths stable so upstream packaging continues to work.

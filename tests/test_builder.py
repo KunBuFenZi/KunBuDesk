@@ -12,7 +12,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from common import ROOT, decode_config, encode_config, load_yaml
-from configure import validate
+from configure import POLICY_DEFAULTS, validate
+from prepare import prepare
 from android_signing import SECRET_NAMES, keystore, require_secrets, verify_apk
 from action_versions import current_actions
 from package import package
@@ -22,6 +23,34 @@ from source_archive import include_source_member
 
 
 class ConfigTests(unittest.TestCase):
+    def test_missing_policy_values_use_requested_defaults(self):
+        config = validate(SMOKE_CONFIG)
+        self.assertEqual({field: config[field] for field in POLICY_DEFAULTS}, {
+            "hide_powered_by": True, "lock_server_settings": True, "simplify_about": True,
+        })
+
+    def test_policy_values_require_booleans_and_can_be_disabled(self):
+        for field in POLICY_DEFAULTS:
+            self.assertFalse(validate({**SMOKE_CONFIG, field: False})[field])
+            for value in ("false", 0, None):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    validate({**SMOKE_CONFIG, field: value})
+
+    def test_dispatch_retains_repository_policy_and_server_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            defaults = {**SMOKE_CONFIG, **{field: False for field in POLICY_DEFAULTS}}
+            (root / "config/client.json").write_text(json.dumps(defaults))
+            (root / "upstream").mkdir()
+            (root / "upstream/lock.json").write_text((ROOT / "upstream/lock.json").read_text())
+            with patch("prepare.ROOT", root), patch("prepare.github_output") as output, \
+                    patch.dict(os.environ, {"INPUT_PLATFORM": "windows", "INPUT_ARCH": "x86", "INPUT_ID_SERVER": "override.invalid"}, clear=True):
+                prepare()
+            config = decode_config(output.call_args.args[0]["config"])
+            self.assertEqual(config["id_server"], "override.invalid")
+            self.assertTrue(all(config[field] is False for field in POLICY_DEFAULTS))
+
     def test_config_fields_are_strings(self):
         with self.assertRaises(ValueError):
             validate({**SMOKE_CONFIG, "relay_server": 123})

@@ -3,5 +3,8 @@
   "id_server": "rust.kjxtec.cn",
   "relay_server": "rust.kjxtec.cn",
   "api_server": "https://rust.kjxtec.cn",
-  "key": "WMvTXzDkZF4WlfYdrCuzSmidky9VOL5Y4Jyp6x26558="
+  "key": "WMvTXzDkZF4WlfYdrCuzSmidky9VOL5Y4Jyp6x26558=",
+  "hide_powered_by": true,
+  "lock_server_settings": true,
+  "simplify_about": true
 }

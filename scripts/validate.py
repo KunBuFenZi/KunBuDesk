@@ -9,7 +9,7 @@ import tempfile
 
 import yaml
 from common import RECIPE_NAMES, ROOT, download_source
-from configure import apply
+from configure import FIELDS, apply
 from pipeline import JOBS, all_matrices, create_action, matrix_env_key, resolve_env
 from sync_upstream import SMOKE_CONFIG, verify_recipes
 
@@ -30,7 +30,8 @@ def validate(source: Path | None = None, lint_directory: Path | None = None):
         shutil.copytree(source, copy)
         config = apply(copy, SMOKE_CONFIG)
         text = (copy / "libs/hbb_common/src/config.rs").read_text(encoding="utf-8")
-        for value in config.values():
+        for field in FIELDS:
+            value = config[field]
             if value and value not in text:
                 raise AssertionError("Expected client defaults are missing from patched source")
         linux = (copy / "src/platform/linux.rs").read_text(encoding="utf-8")

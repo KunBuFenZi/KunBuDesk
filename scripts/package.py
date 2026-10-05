@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 
 from common import ROOT, decode_config
+from configure import POLICY_DEFAULTS
 from android_signing import require_secrets, verify_apk
 
 
@@ -62,6 +63,7 @@ def package(kind: str, source: Path):
         "run_url": f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}",
         "android_signing": "fixed-release-keystore" if kind.startswith("android") else None,
         "android_certificate_sha256": next(iter(fingerprints)) if kind.startswith("android") else None,
+        "client_policy": {field: config.get(field, default) for field, default in POLICY_DEFAULTS.items()},
         "files": [path.name for path in destination.iterdir() if path.suffix != ".json"],
     }
     if kind == "linux_wayland":

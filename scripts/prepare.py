@@ -11,7 +11,7 @@ from android_signing import check_keystore
 
 def prepare():
     defaults = json.loads((ROOT / "config/client.json").read_text(encoding="utf-8"))
-    config = validate({field: os.environ.get("INPUT_" + field.upper(), "").strip() or defaults.get(field, "") for field in FIELDS})
+    config = validate({**defaults, **{field: os.environ.get("INPUT_" + field.upper(), "").strip() or defaults.get(field, "") for field in FIELDS}})
     lock = json.loads((ROOT / "upstream/lock.json").read_text(encoding="utf-8"))
     selected = select_matrices(os.environ.get("INPUT_PLATFORM", "all"), os.environ.get("INPUT_ARCH", "all"))
     if selected["android"] or selected["android_universal"]:
