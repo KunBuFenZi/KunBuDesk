@@ -44,9 +44,15 @@ def rewrite(value):
     value = re.sub(r"matrix\.job\.([A-Za-z0-9_-]+)",
                    lambda m: "env." + matrix_env_key(m[1]), value)
     value = value.replace("inputs.upload-artifact", "true").replace("inputs.upload-tag", "'custom'")
-    # flutter-action v2 now exposes lowercase public output names. Preserve the
-    # official ARM64 Dart bootstrap while upgrading its old v2.12 action.
-    value = value.replace("steps.flutter.outputs['CACHE-PATH']", "steps.flutter.outputs['cache-path']")
+    # New flutter-action versions put the SDK inside <cache-path>/flutter.
+    # FLUTTER_ROOT identifies the real SDK, including its bin directory.
+    for output_name in ("CACHE-PATH", "cache-path"):
+        old = '$flutterRoot = "${{ steps.flutter.outputs[\'' + output_name + '\'] }}"'
+        value = value.replace(old, "$flutterRoot = $env:FLUTTER_ROOT")
+    value = value.replace(
+        "C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/",
+        '"$env:FLUTTER_ROOT/bin/cache/artifacts/engine/windows-x64-release/"',
+    )
     for key in ("target", "configuration", "platform", "target_version"):
         value = value.replace("inputs." + key, "env." + matrix_env_key(key))
     value = re.sub(r"secrets\.([A-Z0-9_]+)", lambda m: "env.CB_SECRET_" + m[1], value)

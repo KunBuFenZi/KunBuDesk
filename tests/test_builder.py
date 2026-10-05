@@ -135,9 +135,16 @@ class PipelineTests(unittest.TestCase):
     def test_new_flutter_action_preserves_windows_arm64_bootstrap(self):
         steps, _ = adapted_steps("windows")
         bootstrap = next(step for step in steps if step.get("name") == "Force arm64 Dart SDK + engine")
-        self.assertIn("steps.flutter.outputs['cache-path']", bootstrap["run"])
-        self.assertNotIn("outputs['CACHE-PATH']", bootstrap["run"])
+        self.assertIn("$flutterRoot = $env:FLUTTER_ROOT", bootstrap["run"])
+        self.assertNotIn("steps.flutter.outputs", bootstrap["run"])
         self.assertIn("windows_arm64", bootstrap["run"])
+
+    def test_windows_x64_engine_uses_the_installed_flutter_sdk(self):
+        steps, _ = adapted_steps("windows")
+        engine = next(step for step in steps if step.get("name") == "Replace engine with rustdesk custom flutter engine")
+        self.assertIn('"$env:FLUTTER_ROOT/bin/cache/artifacts/engine/windows-x64-release/"', engine["run"])
+        self.assertNotIn("hostedtoolcache", engine["run"])
+        self.assertIn("env.CB_MATRIX_ARCH == 'x86_64'", engine["if"])
 
     def test_no_author_signing_service_or_release(self):
         for kind in JOBS:
