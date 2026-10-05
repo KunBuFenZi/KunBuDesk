@@ -1,7 +1,7 @@
 {
   "app_name": "KunBuDesk",
-  "id_server": "",
-  "relay_server": "",
-  "api_server": "",
-  "key": ""
+  "id_server": "rust.kjxtec.cn",
+  "relay_server": "rust.kjxtec.cn",
+  "api_server": "https://rust.kjxtec.cn",
+  "key": "WMvTXzDkZF4WlfYdrCuzSmidky9VOL5Y4Jyp6x26558="
 }
