@@ -1,0 +1,14 @@
+{
+  "repository": "rustdesk/rustdesk",
+  "channel": "stable",
+  "tag": "1.5.0",
+  "commit": "fada664df7a294d1d1a9ca3e7cd3637069122f17",
+  "hbb_common_commit": "229b904508364c8997aad0fb5af57effac859f60",
+  "release_url": "https://github.com/rustdesk/rustdesk/releases/tag/1.5.0",
+  "synced_at": "2026-10-05T03:00:00+00:00",
+  "recipe_sha256": {
+    "flutter-build.yml": "267de22b2416dd10a70c3c6dab2d60d510c664e9df9ddf3142329992b18369ca",
+    "bridge.yml": "b519191d9d9bd7f4350cc978c8fd6db366cf3152206835620a73f09a165b4d05",
+    "third-party-RustDeskTempTopMostWindow.yml": "6c545ad6ac5d20e2c6334fd136c388cffa0fb04cb76623be4abb1e583e1c0a9f"
+  }
+}

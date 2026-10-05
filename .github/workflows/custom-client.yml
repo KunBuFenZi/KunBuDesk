@@ -1,0 +1,636 @@
+# Static orchestration; official recipes are loaded at runtime from upstream/.
+name: Build custom RustDesk
+run-name: 'Custom RustDesk · ${{ inputs.platform }} · ${{ inputs.arch }} · #${{ github.run_number }}'
+'on':
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: App 名称（留空使用 config/client.json）
+        type: string
+        required: false
+      id_server:
+        description: ID 服务器，例如 rd.example.com:21116
+        type: string
+        required: false
+      relay_server:
+        description: 中继服务器（可留空），例如 rd.example.com:21117
+        type: string
+        required: false
+      api_server:
+        description: API 地址（可留空），例如 https://rd.example.com
+        type: string
+        required: false
+      key:
+        description: 服务器公钥 id_ed25519.pub（留空使用配置文件）
+        type: string
+        required: false
+      platform:
+        description: 编译平台
+        type: choice
+        default: all
+        options:
+        - all
+        - windows
+        - linux
+        - macos
+        - android
+      arch:
+        description: 架构；all 编译所选平台的全部支持架构
+        type: choice
+        default: all
+        options:
+        - all
+        - x86_64
+        - arm64
+        - x86
+        - armv7
+permissions:
+  contents: read
+jobs:
+  prepare:
+    name: Validate config and select targets
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.prepare.outputs.commit }}
+      version: ${{ steps.prepare.outputs.version }}
+      config: ${{ steps.prepare.outputs.config }}
+      bridge_enabled: ${{ steps.prepare.outputs.bridge_enabled }}
+      bridge_matrix: ${{ steps.prepare.outputs.bridge_matrix }}
+      topmost_enabled: ${{ steps.prepare.outputs.topmost_enabled }}
+      topmost_matrix: ${{ steps.prepare.outputs.topmost_matrix }}
+      windows_enabled: ${{ steps.prepare.outputs.windows_enabled }}
+      windows_matrix: ${{ steps.prepare.outputs.windows_matrix }}
+      windows_legacy_enabled: ${{ steps.prepare.outputs.windows_legacy_enabled }}
+      windows_legacy_matrix: ${{ steps.prepare.outputs.windows_legacy_matrix }}
+      macos_enabled: ${{ steps.prepare.outputs.macos_enabled }}
+      macos_matrix: ${{ steps.prepare.outputs.macos_matrix }}
+      android_enabled: ${{ steps.prepare.outputs.android_enabled }}
+      android_matrix: ${{ steps.prepare.outputs.android_matrix }}
+      android_universal_enabled: ${{ steps.prepare.outputs.android_universal_enabled }}
+      android_universal_matrix: ${{ steps.prepare.outputs.android_universal_matrix }}
+      linux_enabled: ${{ steps.prepare.outputs.linux_enabled }}
+      linux_matrix: ${{ steps.prepare.outputs.linux_matrix }}
+      linux_legacy_enabled: ${{ steps.prepare.outputs.linux_legacy_enabled }}
+      linux_legacy_matrix: ${{ steps.prepare.outputs.linux_legacy_matrix }}
+      appimage_enabled: ${{ steps.prepare.outputs.appimage_enabled }}
+      appimage_matrix: ${{ steps.prepare.outputs.appimage_matrix }}
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - run: python -m pip install -r requirements.txt
+    - id: prepare
+      env:
+        INPUT_APP_NAME: ${{ inputs.app_name }}
+        INPUT_ID_SERVER: ${{ inputs.id_server }}
+        INPUT_RELAY_SERVER: ${{ inputs.relay_server }}
+        INPUT_API_SERVER: ${{ inputs.api_server }}
+        INPUT_KEY: ${{ inputs.key }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
+        INPUT_ARCH: ${{ inputs.arch }}
+      run: python scripts/prepare.py
+  source:
+    name: Archive corresponding source
+    needs:
+    - prepare
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - run: python .custom-builder/scripts/source_archive.py
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-corresponding-source
+        path: .custom-builder/dist/*.tar.gz
+        if-no-files-found: error
+        retention-days: 30
+  bridge:
+    name: bridge · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.bridge_enabled == 'true' }}
+    runs-on: ${{ matrix.job.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.bridge_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py bridge
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+  topmost:
+    name: topmost · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.topmost_enabled == 'true' }}
+    runs-on: ${{ matrix.job.target }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.topmost_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py topmost
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+  windows:
+    name: windows · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    - bridge
+    - topmost
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.windows_enabled == 'true' && needs.bridge.result
+      == 'success' && needs.topmost.result == 'success' }}
+    runs-on: ${{ matrix.job.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.windows_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py windows
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py windows
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-windows-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  windows_legacy:
+    name: windows_legacy · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.windows_legacy_enabled == 'true' }}
+    runs-on: ${{ matrix.job.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.windows_legacy_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py windows_legacy
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py windows_legacy
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-windows_legacy-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  macos:
+    name: macos · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    - bridge
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.macos_enabled == 'true' && needs.bridge.result
+      == 'success' }}
+    runs-on: ${{ matrix.job.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.macos_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py macos
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py macos
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-macos-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  android:
+    name: android · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    - bridge
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.android_enabled == 'true' && needs.bridge.result
+      == 'success' }}
+    runs-on: ${{ matrix.job.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.android_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+      CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+      CB_SECRET_ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+      CB_SECRET_ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+      CB_SECRET_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py android
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py android
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-android-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  android_universal:
+    name: android_universal · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    - android
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.android_universal_enabled == 'true'
+      && needs.android.result == 'success' }}
+    runs-on: ${{ matrix.job.on }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.android_universal_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+      CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+      CB_SECRET_ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+      CB_SECRET_ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+      CB_SECRET_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py android_universal
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py android_universal
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-android_universal-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  linux:
+    name: linux · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    - bridge
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.linux_enabled == 'true' && needs.bridge.result
+      == 'success' }}
+    runs-on: ${{ matrix.job.on }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.linux_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py linux
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py linux
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-linux-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  linux_legacy:
+    name: linux_legacy · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.linux_legacy_enabled == 'true' }}
+    runs-on: ${{ matrix.job.on }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.linux_legacy_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py linux_legacy
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py linux_legacy
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-linux_legacy-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  appimage:
+    name: appimage · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    needs:
+    - prepare
+    - linux
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.appimage_enabled == 'true' && needs.linux.result
+      == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.appimage_matrix) }}
+    env:
+      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
+      BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
+    steps:
+    - name: Checkout pinned official RustDesk
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        repository: rustdesk/rustdesk
+        ref: ${{ needs.prepare.outputs.commit }}
+        submodules: recursive
+        persist-credentials: false
+    - name: Checkout this builder
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        ref: ${{ github.sha }}
+        path: .custom-builder
+        persist-credentials: false
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+    - name: Install recipe parser
+      shell: bash
+      run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Apply client defaults and prepare official build steps
+      shell: bash
+      run: python .custom-builder/scripts/stage.py appimage
+    - name: Build with official RustDesk steps
+      uses: ./.custom-builder/.generated/action
+    - name: Collect installers and build information
+      shell: bash
+      run: python .custom-builder/scripts/package.py appimage
+    - name: Upload client download
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: client-appimage-${{ matrix.job.arch }}
+        path: .custom-builder/dist/
+        if-no-files-found: error
+        retention-days: 30
+  summary:
+    name: Build summary
+    needs:
+    - prepare
+    - source
+    - bridge
+    - topmost
+    - windows
+    - windows_legacy
+    - macos
+    - android
+    - android_universal
+    - linux
+    - linux_legacy
+    - appimage
+    if: ${{ always() }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        persist-credentials: false
+    - env:
+        JOB_RESULTS_JSON: ${{ toJSON(needs) }}
+      run: python scripts/summary.py
