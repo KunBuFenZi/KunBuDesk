@@ -7,9 +7,11 @@ from common import ROOT, github_output
 from client_config import load_client_config
 from pipeline import all_matrices, select_matrices
 from android_signing import check_keystore
+from artifact_zip import require_password
 
 
 def prepare():
+    require_password()
     load_client_config()
     lock = json.loads((ROOT / "upstream/lock.json").read_text(encoding="utf-8"))
     selected = select_matrices(os.environ.get("INPUT_PLATFORM", "all"), os.environ.get("INPUT_ARCH", "all"))

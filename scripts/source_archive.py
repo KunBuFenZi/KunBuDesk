@@ -13,6 +13,8 @@ def include_source_member(member):
     path = Path(member.name)
     if any(part in {".git", ".venv", "__pycache__", "dist", ".generated", ".signing"} for part in path.parts):
         return None
+    if ".custom-builder" in path.parts and any(part in {"encrypted", "encrypted-intermediate"} for part in path.parts):
+        return None
     if path.suffix.lower() in {".jks", ".keystore", ".p12", ".pfx"}:
         return None
     return member

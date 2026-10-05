@@ -48,7 +48,8 @@ class ConfigTests(unittest.TestCase):
             (root / "upstream/lock.json").write_text((ROOT / "upstream/lock.json").read_text())
             summary = root / "summary.md"
             env = {name: SMOKE_CONFIG[field] for field, name in SECRET_ENV.items()}
-            env.update(INPUT_PLATFORM="windows", INPUT_ARCH="x86", GITHUB_STEP_SUMMARY=str(summary))
+            env.update(INPUT_PLATFORM="windows", INPUT_ARCH="x86", GITHUB_STEP_SUMMARY=str(summary),
+                       CB_ARCHIVE_PASSWORD="test-archive-password")
             with patch("prepare.ROOT", root), patch("client_config.ROOT", root), patch("prepare.github_output") as output, \
                     patch.dict(os.environ, env, clear=True):
                 prepare()
@@ -57,6 +58,7 @@ class ConfigTests(unittest.TestCase):
             public = json.dumps(output.call_args.args[0]) + summary.read_text()
             for value in SMOKE_CONFIG.values():
                 self.assertNotIn(value, public)
+            self.assertNotIn(env["CB_ARCHIVE_PASSWORD"], public)
             self.assertEqual(config["id_server"], SMOKE_CONFIG["id_server"])
             self.assertTrue(all(config[field] is False for field in POLICY_DEFAULTS))
 

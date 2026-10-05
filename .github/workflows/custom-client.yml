@@ -78,6 +78,7 @@ jobs:
         CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
         CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
         CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
       run: python scripts/prepare.py
   source:
     name: Archive corresponding source
@@ -115,12 +116,19 @@ jobs:
         CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
       run: python .custom-builder/scripts/client_config.py
     - run: python .custom-builder/scripts/source_archive.py
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-corresponding-source.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
     - uses: actions/upload-artifact@v7
       with:
         name: client-corresponding-source
-        path: .custom-builder/dist/*.tar.gz
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   bridge:
     name: "bridge \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -265,13 +273,20 @@ jobs:
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py windows
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-windows-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-windows-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   windows_legacy:
     name: "windows_legacy \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -321,13 +336,20 @@ jobs:
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py windows_legacy
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-windows_legacy-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-windows_legacy-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   macos:
     name: "macos \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -379,13 +401,20 @@ jobs:
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py macos
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-macos-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-macos-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   android:
     name: "android \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -438,16 +467,25 @@ jobs:
       run: python .custom-builder/scripts/stage.py android
     - name: Build with official RustDesk steps
       uses: ./.custom-builder/.generated/action
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py android
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-android-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-android-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   android_universal:
     name: "android_universal \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -500,16 +538,25 @@ jobs:
       run: python .custom-builder/scripts/stage.py android_universal
     - name: Build with official RustDesk steps
       uses: ./.custom-builder/.generated/action
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py android_universal
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-android_universal-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-android_universal-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   linux:
     name: "linux \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -558,16 +605,25 @@ jobs:
       run: python .custom-builder/scripts/stage.py linux
     - name: Build with official RustDesk steps
       uses: ./.custom-builder/.generated/action
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py linux
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-linux-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-linux-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   linux_wayland:
     name: "Linux Wayland experimental \xB7 ${{ matrix.job.arch }}"
     needs:
@@ -619,13 +675,20 @@ jobs:
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py linux_wayland
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-linux-wayland-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-linux-wayland-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   linux_legacy:
     name: "linux_legacy \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -675,13 +738,20 @@ jobs:
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py linux_legacy
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-linux_legacy-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-linux_legacy-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   appimage:
     name: "appimage \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
@@ -730,16 +800,25 @@ jobs:
       run: python .custom-builder/scripts/stage.py appimage
     - name: Build with official RustDesk steps
       uses: ./.custom-builder/.generated/action
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
     - name: Collect installers and build information
       shell: bash
       run: python .custom-builder/scripts/package.py appimage
-    - name: Upload client download
+    - name: Encrypt download with repository Secret
+      shell: bash
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+        CB_ARCHIVE_OUTPUT: .custom-builder/encrypted/client-appimage-${{ matrix.job.arch }}.zip
+      run: python .custom-builder/scripts/artifact_zip.py seal --input .custom-builder/dist --output "$CB_ARCHIVE_OUTPUT"
+    - name: Upload encrypted client download
       uses: actions/upload-artifact@v7
       with:
         name: client-appimage-${{ matrix.job.arch }}
-        path: .custom-builder/dist/
+        path: .custom-builder/encrypted/*.zip
         if-no-files-found: error
         retention-days: 30
+        compression-level: 0
   summary:
     name: Build summary
     needs:

@@ -12,7 +12,7 @@
 2. 按下表修改对应 Secret。
 3. 打开 **Actions → Build custom RustDesk → Run workflow**，只需选择 `platform` 和 `arch`。
 4. 点击 **Run workflow**，等待完成。
-5. 在该次运行页面底部 **Artifacts** 下载 `client-*`，解压后就是安装包、版本信息和校验文件。
+5. 在该次运行页面底部 **Artifacts** 下载 `client-*`，先解压 GitHub 外层 ZIP，再用 **7-Zip 或 Keka** 输入密码解开里面的 AES-256 ZIP，获得安装包、版本信息和校验文件。
 
 | Secret | 填写说明 |
 |---|---|
@@ -21,6 +21,7 @@
 | `CLIENT_RELAY_SERVER` | 可选，中继服务器，例如 `rd.example.com:21117`。删除该 Secret 后使用客户端的中继发现逻辑。 |
 | `CLIENT_API_SERVER` | 可选，API 地址，例如 `https://rd.example.com`。普通开源 RustDesk Server 没有 API 时可删除该 Secret。 |
 | `CLIENT_KEY` | 必填，服务端 `id_ed25519.pub` 文件中的 Base64 **公钥**，不是私钥。 |
+| `ARTIFACT_ZIP_PASSWORD` | 必填，安装包、对应源码及编译中间产物的 ZIP 加密密码。本仓库已保存；修改后对后续构建生效。 |
 
 | 编译参数 | 填写说明 |
 |---|---|
@@ -29,7 +30,7 @@
 
 IPv6 用 `[2001:db8::1]:21116` 形式。Secrets 通过环境变量交给脚本，经过校验后写入客户端源码，不作为命令执行。每个构建任务直接读取 Secrets；编码后的配置仅在该任务内部传递，并单独设置日志遮罩，不使用跨任务的配置输出，避免 GitHub 因检测到 Secret 而丢弃输出。
 
-公开仓库后，有 GitHub 账号的人可以下载 Actions Artifact。Secrets 隐藏的是仓库和日志里的原始默认配置；客户端及对应源码必须包含实际服务器配置，因此下载者仍能从这些产物中读取地址、公钥和应用名称。此前已经提交的配置和旧构建记录也不会因为保存到 Secrets 而自动消失，公开前需要单独处理。
+公开仓库后，有 GitHub 账号的人可以下载 Actions Artifact，但新产物里的文件需要 ZIP 密码才能解开。Secrets 隐藏的是仓库和日志里的原始默认配置；解密后的客户端及对应源码包含实际服务器配置，获得密码的人仍能读取地址、公钥和应用名称。此前已经提交的配置和旧构建记录不会因为保存到 Secrets 或启用 ZIP 加密而自动消失，公开前需要单独处理。
 
 [`config/client.json`](config/client.json) 只保存界面和限制策略，禁止写入应用名称、服务器或公钥。
 
@@ -105,7 +106,11 @@ App 名称用于客户端名称、窗口标题、安装包文件名、Windows MS
 
 `Validate builder` 会用这份固定证书签一个临时测试 APK，验证签名和打包链路，测试包用完删除。它不代表完整 RustDesk 已编译成功。
 
-每个安装包 Artifact 包含 `build-info.json` 和 `SHA256SUMS.txt`。Artifact 保留 30 天；需要长期保存请下载备份。产物目前通过 Actions Artifact 下载，不自动创建公开 Release。
+每个安装包 Artifact 只上传一个 **AES-256 加密 ZIP**，安装包、`build-info.json` 和 `SHA256SUMS.txt` 都放在里面。对应源码也使用相同密码加密。Linux DEB 和 Android 库等任务间传递的产物同样加密，AppImage 和 Android 通用版编译时自动解密；桥接代码和窗口辅助库不含客户端配置，仍按官方流程传递。
+
+密码只从 `ARTIFACT_ZIP_PASSWORD` Secret 通过环境变量读取，不写入 Git、源码包、命令参数或构建说明；缺少密码时在编译开始前失败，不会回退为未加密上传。每个 ZIP 上传前会检查 AES-256 标志并逐个核对文件内容。GitHub 自动生成的下载 ZIP 本身不能设置密码，所以下载后需要解开两层；里面的加密 ZIP 建议用 7-Zip 或 Keka，系统自带解压工具可能不支持 AES ZIP。
+
+Artifact 保留 30 天；需要长期保存请下载备份。产物目前通过 Actions Artifact 下载，不自动创建公开 Release。加密仅对之后的新构建生效，已有未加密安装包和旧日志保持原状。
 
 ## 运行与费用
 

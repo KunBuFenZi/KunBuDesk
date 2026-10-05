@@ -156,10 +156,20 @@ def adapted_steps(kind: str, directory: Path = ROOT / "upstream") -> tuple[list,
             continue
         if platform == "macos" and name == "Rename rustdesk":
             continue
-        # Upload final outputs once, preserving the upstream intermediate libraries/debs.
+        # Final outputs are uploaded only by the encrypted orchestration steps.
+        # Dependencies used by universal APK/AppImage jobs also contain client defaults.
         if uses.startswith("actions/upload-artifact@") and platform != "helper":
             if kind in ("android", "linux") and name in ("Upload Rustdesk library to Artifacts", "Upload deb"):
-                pass
+                encryption = {
+                    "name": "Encrypt build dependency before upload", "shell": "bash",
+                    "env": {"CB_ARTIFACT_INPUT": step["with"]["path"]},
+                    "run": 'python .custom-builder/scripts/artifact_zip.py seal --input "$CB_ARTIFACT_INPUT" --output .custom-builder/encrypted-intermediate/client-build-dependency.zip',
+                }
+                if "if" in step:
+                    encryption["if"] = step["if"]
+                steps.append(rewrite(encryption))
+                step["with"].update(path=".custom-builder/encrypted-intermediate/client-build-dependency.zip",
+                                    **{"if-no-files-found": "error", "compression-level": 0})
             else:
                 continue
         if name == "Build pre-built MSI template":
@@ -197,6 +207,17 @@ PY
         if uses:
             step["uses"] = modern_action(uses)
         steps.append(rewrite(step))
+        if uses.startswith("actions/download-artifact@") and (
+                kind == "appimage" and name == "Download Binary"
+                or kind == "android_universal" and name == "Download Rustdesk library from Artifacts"):
+            decryption = {
+                "name": "Decrypt build dependency", "shell": "bash",
+                "env": {"CB_ARTIFACT_DESTINATION": step["with"]["path"]},
+                "run": 'python .custom-builder/scripts/artifact_zip.py open --input "$CB_ARTIFACT_DESTINATION/client-build-dependency.zip" --output "$CB_ARTIFACT_DESTINATION" --remove-archive',
+            }
+            if "if" in step:
+                decryption["if"] = step["if"]
+            steps.append(rewrite(decryption))
     if platform == "android" and android_signing_steps != 1:
         raise ValueError("Official Android signing stage changed; review needed")
     # Composite actions do not support secrets/matrix/workflow input contexts directly.

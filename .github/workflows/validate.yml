@@ -78,3 +78,7 @@ jobs:
         CB_SECRET_ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
         CB_SECRET_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       run: python scripts/android_signing_smoke.py
+    - name: Verify password-protected ZIP with repository Secret
+      env:
+        CB_ARCHIVE_PASSWORD: ${{ secrets.ARTIFACT_ZIP_PASSWORD }}
+      run: python scripts/artifact_zip.py smoke
