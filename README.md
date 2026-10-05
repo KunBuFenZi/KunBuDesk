@@ -6,27 +6,34 @@
 
 ## 最快使用方法
 
-1. 打开本仓库的 **Actions → Build custom RustDesk → Run workflow**。
-2. 填写下面的参数。
-3. `platform` 选择平台，`arch` 选择架构；两个都选 `all` 会编译全部支持的平台和架构。
-4. 点击 **Run workflow**，等待完成。
-5. 在该次运行页面底部 **Artifacts** 下载 `client-*`。解压后就是安装包，同时包含版本信息和校验文件。
+默认 App 名称、ID/中继/API 服务器和公钥全部保存在 **GitHub Actions Secrets**，不写入仓库文件，也不通过公开的 Run workflow 参数传入。本仓库已保存原有五项配置，无需重新填写。
 
-| 参数 | 填写说明 |
+1. 需要修改配置时，打开仓库 **Settings → Secrets and variables → Actions → Repository secrets**。
+2. 按下表修改对应 Secret。
+3. 打开 **Actions → Build custom RustDesk → Run workflow**，只需选择 `platform` 和 `arch`。
+4. 点击 **Run workflow**，等待完成。
+5. 在该次运行页面底部 **Artifacts** 下载 `client-*`，解压后就是安装包、版本信息和校验文件。
+
+| Secret | 填写说明 |
 |---|---|
-| `app_name` | 例如 `MyDesk`。1–32 个英文字母、数字、下划线或连字符，首字符为字母；暂不支持空格和中文名称。 |
-| `id_server` | ID 服务器，例如 `rd.example.com` 或 `rd.example.com:21116`。不加 `http://`、`https://` 或路径。 |
-| `relay_server` | 中继服务器，例如 `rd.example.com:21117`；可留空，使用客户端的中继发现逻辑。 |
-| `api_server` | API 地址，例如 `https://rd.example.com`；普通开源 RustDesk Server 没有 API 时留空。 |
-| `key` | 服务端 `id_ed25519.pub` 文件中的 Base64 **公钥**，不是私钥。 |
+| `CLIENT_APP_NAME` | 必填，例如 `MyDesk`。1–32 个英文字母、数字、下划线或连字符，首字符为字母；暂不支持空格和中文名称。 |
+| `CLIENT_ID_SERVER` | 必填，ID 服务器，例如 `rd.example.com` 或 `rd.example.com:21116`。不加 `http://`、`https://` 或路径。 |
+| `CLIENT_RELAY_SERVER` | 可选，中继服务器，例如 `rd.example.com:21117`。删除该 Secret 后使用客户端的中继发现逻辑。 |
+| `CLIENT_API_SERVER` | 可选，API 地址，例如 `https://rd.example.com`。普通开源 RustDesk Server 没有 API 时可删除该 Secret。 |
+| `CLIENT_KEY` | 必填，服务端 `id_ed25519.pub` 文件中的 Base64 **公钥**，不是私钥。 |
+
+| 编译参数 | 填写说明 |
+|---|---|
 | `platform` | `all`、`windows`、`linux`、`linux-wayland`、`macos`、`android`。 |
 | `arch` | `all`、`x86_64`、`arm64`、`x86`、`armv7`。 |
 
-ID Server 和 Key 必须提供。IPv6 用 `[2001:db8::1]:21116` 形式。参数通过环境变量交给脚本，经过校验后写入源码，不作为命令执行。
+IPv6 用 `[2001:db8::1]:21116` 形式。Secrets 通过环境变量交给脚本，经过校验后写入客户端源码，不作为命令执行。每个构建任务直接读取 Secrets；编码后的配置仅在该任务内部传递，并单独设置日志遮罩，不使用跨任务的配置输出，避免 GitHub 因检测到 Secret 而丢弃输出。
 
-默认 App 名称为 `KunBuDesk`。想只填一次：编辑 [`config/client.json`](config/client.json) 保存 App 名称和服务器信息。Actions 中留空的字段会使用该文件的值。要清空已保存的中继/API 地址，请同时清空配置文件中的对应字段。
+公开仓库后，有 GitHub 账号的人可以下载 Actions Artifact。Secrets 隐藏的是仓库和日志里的原始默认配置；客户端及对应源码必须包含实际服务器配置，因此下载者仍能从这些产物中读取地址、公钥和应用名称。此前已经提交的配置和旧构建记录也不会因为保存到 Secrets 而自动消失，公开前需要单独处理。
 
-该文件还包含三个默认开启的客户端开关，只有编译仓库的维护者能改变它们，客户端不提供修改入口：
+[`config/client.json`](config/client.json) 只保存界面和限制策略，禁止写入应用名称、服务器或公钥。
+
+该文件包含三个默认开启的客户端开关，只有编译仓库的维护者能改变它们，客户端不提供修改入口：
 
 | 开关 | 默认效果 |
 |---|---|
@@ -112,7 +119,7 @@ App 名称用于客户端名称、窗口标题、安装包文件名、Windows MS
 .github/workflows/custom-client.yml   手动编译入口
 .github/workflows/sync-upstream.yml   每日稳定版同步
 .github/workflows/validate.yml        仓库验证
-config/client.json                   可选的默认客户端配置
+config/client.json                   界面和限制策略；服务器默认值保存在 Secrets
 upstream/lock.json                   官方版本、源码提交、子模块提交和模板校验值
 upstream/*.yml                       同步的官方构建模板，不直接注册为工作流
 scripts/                             参数校验、源码定制、模板适配、产物打包、上游同步

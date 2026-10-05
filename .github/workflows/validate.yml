@@ -63,6 +63,14 @@ jobs:
       with:
         python-version: '3.12'
     - run: python -m pip install -r requirements.txt
+    - name: Verify private client defaults are available and masked
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python scripts/client_config.py
     - name: Sign and verify temporary test APK with the fixed release key
       env:
         CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}

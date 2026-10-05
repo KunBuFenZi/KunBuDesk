@@ -1,31 +1,11 @@
 # Static orchestration; official recipes are loaded at runtime from upstream/.
 name: Build custom RustDesk
-run-name: 'Custom RustDesk · ${{ inputs.platform }} · ${{ inputs.arch }} · #${{ github.run_number }}'
+run-name: "Custom RustDesk \xB7 ${{ inputs.platform }} \xB7 ${{ inputs.arch }} \xB7 #${{ github.run_number }}"
 'on':
   workflow_dispatch:
     inputs:
-      app_name:
-        description: App 名称（留空使用 config/client.json）
-        type: string
-        required: false
-      id_server:
-        description: ID 服务器，例如 rd.example.com:21116
-        type: string
-        required: false
-      relay_server:
-        description: 中继服务器（可留空），例如 rd.example.com:21117
-        type: string
-        required: false
-      api_server:
-        description: API 地址（可留空），例如 https://rd.example.com
-        type: string
-        required: false
-      key:
-        description: 服务器公钥 id_ed25519.pub（留空使用配置文件）
-        type: string
-        required: false
       platform:
-        description: 编译平台（Linux 默认包含 x64 Wayland 实验版）
+        description: "\u7F16\u8BD1\u5E73\u53F0\uFF08Linux \u9ED8\u8BA4\u5305\u542B x64 Wayland \u5B9E\u9A8C\u7248\uFF09"
         type: choice
         default: all
         options:
@@ -36,7 +16,7 @@ run-name: 'Custom RustDesk · ${{ inputs.platform }} · ${{ inputs.arch }} · #$
         - macos
         - android
       arch:
-        description: 架构；all 编译所选平台的全部支持架构
+        description: "\u67B6\u6784\uFF1Ball \u7F16\u8BD1\u6240\u9009\u5E73\u53F0\u7684\u5168\u90E8\u652F\u6301\u67B6\u6784"
         type: choice
         default: all
         options:
@@ -55,7 +35,6 @@ jobs:
     outputs:
       commit: ${{ steps.prepare.outputs.commit }}
       version: ${{ steps.prepare.outputs.version }}
-      config: ${{ steps.prepare.outputs.config }}
       bridge_enabled: ${{ steps.prepare.outputs.bridge_enabled }}
       bridge_matrix: ${{ steps.prepare.outputs.bridge_matrix }}
       topmost_enabled: ${{ steps.prepare.outputs.topmost_enabled }}
@@ -88,17 +67,17 @@ jobs:
     - run: python -m pip install -r requirements.txt
     - id: prepare
       env:
-        INPUT_APP_NAME: ${{ inputs.app_name }}
-        INPUT_ID_SERVER: ${{ inputs.id_server }}
-        INPUT_RELAY_SERVER: ${{ inputs.relay_server }}
-        INPUT_API_SERVER: ${{ inputs.api_server }}
-        INPUT_KEY: ${{ inputs.key }}
         INPUT_PLATFORM: ${{ inputs.platform }}
         INPUT_ARCH: ${{ inputs.arch }}
         CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
         CB_SECRET_ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
         CB_SECRET_ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
         CB_SECRET_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
       run: python scripts/prepare.py
   source:
     name: Archive corresponding source
@@ -106,8 +85,6 @@ jobs:
     - prepare
     runs-on: ubuntu-22.04
     timeout-minutes: 15
-    env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
     steps:
     - name: Checkout pinned official RustDesk
       uses: actions/checkout@v7
@@ -128,6 +105,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - run: python .custom-builder/scripts/source_archive.py
     - uses: actions/upload-artifact@v7
       with:
@@ -136,7 +122,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   bridge:
-    name: bridge · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "bridge \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.bridge_enabled == 'true' }}
@@ -146,7 +132,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.bridge_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -168,13 +153,22 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py bridge
     - name: Build with official RustDesk steps
       uses: ./.custom-builder/.generated/action
   topmost:
-    name: topmost · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "topmost \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.topmost_enabled == 'true' }}
@@ -184,7 +178,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.topmost_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -206,13 +199,22 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py topmost
     - name: Build with official RustDesk steps
       uses: ./.custom-builder/.generated/action
   windows:
-    name: windows · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "windows \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     - bridge
@@ -225,7 +227,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.windows_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -247,6 +248,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py windows
@@ -263,7 +273,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   windows_legacy:
-    name: windows_legacy · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "windows_legacy \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.windows_legacy_enabled == 'true' }}
@@ -273,7 +283,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.windows_legacy_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -295,6 +304,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py windows_legacy
@@ -311,7 +329,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   macos:
-    name: macos · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "macos \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     - bridge
@@ -323,7 +341,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.macos_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -345,6 +362,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py macos
@@ -361,7 +387,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   android:
-    name: android · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "android \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     - bridge
@@ -373,7 +399,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.android_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
       CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
       CB_SECRET_ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
@@ -399,6 +424,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py android
@@ -415,7 +449,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   android_universal:
-    name: android_universal · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "android_universal \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     - android
@@ -427,7 +461,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.android_universal_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
       CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
       CB_SECRET_ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
@@ -453,6 +486,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py android_universal
@@ -469,7 +511,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   linux:
-    name: linux · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "linux \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     - bridge
@@ -481,7 +523,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.linux_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -503,6 +544,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py linux
@@ -519,7 +569,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   linux_wayland:
-    name: Linux Wayland experimental · ${{ matrix.job.arch }}
+    name: "Linux Wayland experimental \xB7 ${{ matrix.job.arch }}"
     needs:
     - prepare
     - bridge
@@ -531,7 +581,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.linux_wayland_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -553,6 +602,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py linux_wayland
@@ -569,7 +627,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   linux_legacy:
-    name: linux_legacy · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "linux_legacy \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.linux_legacy_enabled == 'true' }}
@@ -579,7 +637,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.linux_legacy_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -601,6 +658,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py linux_legacy
@@ -617,7 +683,7 @@ jobs:
         if-no-files-found: error
         retention-days: 30
   appimage:
-    name: appimage · ${{ matrix.job.arch || matrix.job.artifact-name }}
+    name: "appimage \xB7 ${{ matrix.job.arch || matrix.job.artifact-name }}"
     needs:
     - prepare
     - linux
@@ -629,7 +695,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.appimage_matrix) }}
     env:
-      CLIENT_CONFIG_B64: ${{ needs.prepare.outputs.config }}
       BUILD_MATRIX_JSON: ${{ toJSON(matrix.job) }}
     steps:
     - name: Checkout pinned official RustDesk
@@ -651,6 +716,15 @@ jobs:
     - name: Install recipe parser
       shell: bash
       run: python -m pip install -r .custom-builder/requirements.txt
+    - name: Load private client defaults from Secrets
+      shell: bash
+      env:
+        CB_DEFAULT_APP_NAME: ${{ secrets.CLIENT_APP_NAME }}
+        CB_DEFAULT_ID_SERVER: ${{ secrets.CLIENT_ID_SERVER }}
+        CB_DEFAULT_RELAY_SERVER: ${{ secrets.CLIENT_RELAY_SERVER }}
+        CB_DEFAULT_API_SERVER: ${{ secrets.CLIENT_API_SERVER }}
+        CB_DEFAULT_KEY: ${{ secrets.CLIENT_KEY }}
+      run: python .custom-builder/scripts/client_config.py
     - name: Apply client defaults and prepare official build steps
       shell: bash
       run: python .custom-builder/scripts/stage.py appimage

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -13,6 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from common import ROOT, decode_config, encode_config, load_yaml
 from configure import POLICY_DEFAULTS, validate
+from client_config import SECRET_ENV, export_client_config, load_client_config
 from prepare import prepare
 from android_signing import SECRET_NAMES, keystore, require_secrets, verify_apk
 from action_versions import current_actions
@@ -36,20 +39,56 @@ class ConfigTests(unittest.TestCase):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     validate({**SMOKE_CONFIG, field: value})
 
-    def test_dispatch_retains_repository_policy_and_server_overrides(self):
+    def test_dispatch_keeps_private_defaults_out_of_outputs_and_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "config").mkdir()
-            defaults = {**SMOKE_CONFIG, **{field: False for field in POLICY_DEFAULTS}}
-            (root / "config/client.json").write_text(json.dumps(defaults))
+            (root / "config/client.json").write_text(json.dumps({field: False for field in POLICY_DEFAULTS}))
             (root / "upstream").mkdir()
             (root / "upstream/lock.json").write_text((ROOT / "upstream/lock.json").read_text())
-            with patch("prepare.ROOT", root), patch("prepare.github_output") as output, \
-                    patch.dict(os.environ, {"INPUT_PLATFORM": "windows", "INPUT_ARCH": "x86", "INPUT_ID_SERVER": "override.invalid"}, clear=True):
+            summary = root / "summary.md"
+            env = {name: SMOKE_CONFIG[field] for field, name in SECRET_ENV.items()}
+            env.update(INPUT_PLATFORM="windows", INPUT_ARCH="x86", GITHUB_STEP_SUMMARY=str(summary))
+            with patch("prepare.ROOT", root), patch("client_config.ROOT", root), patch("prepare.github_output") as output, \
+                    patch.dict(os.environ, env, clear=True):
                 prepare()
-            config = decode_config(output.call_args.args[0]["config"])
-            self.assertEqual(config["id_server"], "override.invalid")
+                config = load_client_config()
+            self.assertNotIn("config", output.call_args.args[0])
+            public = json.dumps(output.call_args.args[0]) + summary.read_text()
+            for value in SMOKE_CONFIG.values():
+                self.assertNotIn(value, public)
+            self.assertEqual(config["id_server"], SMOKE_CONFIG["id_server"])
             self.assertTrue(all(config[field] is False for field in POLICY_DEFAULTS))
+
+    def test_private_config_is_masked_and_exported_only_within_the_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            (root / "config/client.json").write_text(json.dumps(POLICY_DEFAULTS))
+            environment = root / "env.txt"
+            output = root / "output.txt"
+            env = {name: SMOKE_CONFIG[field] for field, name in SECRET_ENV.items()}
+            env.update(GITHUB_ENV=str(environment), GITHUB_OUTPUT=str(output))
+            stdout = io.StringIO()
+            with patch("client_config.ROOT", root), patch.dict(os.environ, env, clear=True), redirect_stdout(stdout):
+                export_client_config()
+            encoded = environment.read_text().strip().removeprefix("CLIENT_CONFIG_B64=")
+            self.assertEqual(decode_config(encoded), validate(SMOKE_CONFIG))
+            self.assertTrue(stdout.getvalue().startswith("::add-mask::" + encoded + "\n"))
+            self.assertFalse(output.exists())
+
+    def test_private_config_requires_secrets_and_rejects_plaintext_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            path = root / "config/client.json"
+            path.write_text(json.dumps(POLICY_DEFAULTS))
+            with patch("client_config.ROOT", root), patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(ValueError, "CLIENT_APP_NAME, CLIENT_ID_SERVER, CLIENT_KEY"):
+                    load_client_config()
+                path.write_text(json.dumps({**POLICY_DEFAULTS, "id_server": "example.invalid"}))
+                with self.assertRaisesRegex(ValueError, "repository Secrets"):
+                    load_client_config()
 
     def test_config_fields_are_strings(self):
         with self.assertRaises(ValueError):
@@ -203,6 +242,23 @@ class PipelineTests(unittest.TestCase):
             for job in workflow["jobs"].values():
                 for step in job.get("steps", []):
                     self.assertNotIn("inputs.", step.get("run", ""))
+
+    def test_build_jobs_resolve_secrets_without_public_config_inputs_or_outputs(self):
+        workflow = load_yaml(ROOT / ".github/workflows/custom-client.yml")
+        self.assertEqual(set(workflow["on"]["workflow_dispatch"]["inputs"]), {"platform", "arch"})
+        self.assertNotIn("config", workflow["jobs"]["prepare"]["outputs"])
+        expected = {name: "${{ secrets.CLIENT_" + field.upper() + " }}" for field, name in SECRET_ENV.items()}
+        prepare = next(step for step in workflow["jobs"]["prepare"]["steps"] if step.get("id") == "prepare")
+        self.assertEqual({name: prepare["env"][name] for name in expected}, expected)
+        for name, job in workflow["jobs"].items():
+            if name in ("prepare", "summary"):
+                continue
+            self.assertNotIn("CLIENT_CONFIG_B64", job.get("env", {}))
+            steps = job["steps"]
+            loader = next(i for i, step in enumerate(steps) if "scripts/client_config.py" in step.get("run", ""))
+            consumer = next(i for i, step in enumerate(steps) if any(script in step.get("run", "") for script in ("scripts/stage.py", "scripts/source_archive.py")))
+            self.assertLess(loader, consumer)
+            self.assertEqual(steps[loader]["env"], expected)
 
 
 class ArtifactTests(unittest.TestCase):
