@@ -1,0 +1,7 @@
+{
+  "certificate_sha256": "a9cf1fa21b3bfaa1ebfc5eadb0c75fee3e5aae9bf0e6d6c51f461636fee15207",
+  "key_algorithm": "RSA-3072",
+  "alias": "kunbudesk",
+  "created_at": "2026-10-05T02:58:23.250102+00:00",
+  "validity_days": 10950
+}

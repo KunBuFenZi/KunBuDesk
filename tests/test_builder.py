@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,9 +13,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from common import ROOT, decode_config, encode_config, load_yaml
 from configure import validate
+from android_signing import SECRET_NAMES, keystore, require_secrets, verify_apk
 from package import package
 from pipeline import JOBS, adapted_steps, all_matrices, select_matrices
 from sync_upstream import SMOKE_CONFIG, verify_recipes
+from source_archive import include_source_member
 
 
 class ConfigTests(unittest.TestCase):
@@ -123,6 +126,16 @@ class PipelineTests(unittest.TestCase):
                 if "run" in step:
                     self.assertIn("shell", step)
 
+    def test_android_signing_is_mandatory_for_every_recipe(self):
+        for kind in ("android", "android_universal"):
+            steps, env = adapted_steps(kind)
+            signing = [step for step in steps if "android_signing.py sign" in step.get("run", "")]
+            self.assertEqual(len(signing), 1)
+            self.assertNotIn("if", signing[0])
+            self.assertFalse(any("sign-android-release@" in step.get("uses", "") for step in steps))
+            # Private keystore must never be exported into GITHUB_ENV by stage.py.
+            self.assertNotIn("CB_SECRET_ANDROID_SIGNING_KEY", json.dumps(env))
+
     def test_static_workflows_do_not_embed_user_input_in_shell(self):
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text(encoding="utf-8")
@@ -183,11 +196,72 @@ class ArtifactTests(unittest.TestCase):
             (source / "signed-apk").mkdir()
             (source / "signed-apk/rustdesk-test.apk").write_bytes(b"debug")
             (source / "signed-apk/rustdesk-test-signed.apk").write_bytes(b"release")
-            with patch.dict(os.environ, {"CLIENT_CONFIG_B64": encode_config(SMOKE_CONFIG), "CB_SECRET_ANDROID_SIGNING_KEY": "configured"}):
+            with patch.dict(os.environ, {"CLIENT_CONFIG_B64": encode_config(SMOKE_CONFIG)}), \
+                    patch("package.require_secrets"), patch("package.verify_apk", return_value="a" * 64) as verify:
                 package("android", source)
+                verify.assert_called_once_with(source / "signed-apk/rustdesk-test-signed.apk")
             output = source / ".custom-builder/dist"
             self.assertFalse((output / "BuildSmoke-test.apk").exists())
             self.assertTrue((output / "BuildSmoke-test-signed.apk").exists())
+            info = json.loads((output / "build-info.json").read_text())
+            self.assertEqual(info["android_certificate_sha256"], "a" * 64)
+
+    def test_android_debug_only_build_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)
+            (source / "signed-apk").mkdir()
+            (source / "signed-apk/rustdesk-test.apk").write_bytes(b"debug")
+            with patch.dict(os.environ, {"CLIENT_CONFIG_B64": encode_config(SMOKE_CONFIG)}), patch("package.require_secrets"):
+                with self.assertRaisesRegex(ValueError, "No APK signed"):
+                    package("android", source)
+
+    def test_android_wrong_signature_is_rejected_before_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)
+            (source / "signed-apk").mkdir()
+            (source / "signed-apk/rustdesk-test-signed.apk").write_bytes(b"wrong-signer")
+            with patch.dict(os.environ, {"CLIENT_CONFIG_B64": encode_config(SMOKE_CONFIG)}), \
+                    patch("package.require_secrets"), patch("package.verify_apk", side_effect=ValueError("wrong signer")):
+                with self.assertRaisesRegex(ValueError, "wrong signer"):
+                    package("android", source)
+            self.assertFalse(list((source / ".custom-builder/dist").glob("*.apk")))
+
+
+class SigningTests(unittest.TestCase):
+    def test_missing_secrets_never_falls_back_to_debug_signing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "ANDROID_SIGNING_KEY"):
+                require_secrets()
+
+    def test_apk_must_have_exactly_one_pinned_signer(self):
+        fingerprint = "a" * 64
+        for digests in ([fingerprint], ["b" * 64], [fingerprint, "b" * 64], []):
+            output = "\n".join(f"Signer #{i + 1} certificate SHA-256 digest: {value}" for i, value in enumerate(digests)).encode()
+            with self.subTest(digests=digests), patch("android_signing.sdk_tool", return_value="apksigner"), \
+                    patch("android_signing.run_tool", return_value=output), \
+                    patch("android_signing.expected_fingerprint", return_value=fingerprint):
+                if digests == [fingerprint]:
+                    self.assertEqual(verify_apk(Path("test.apk")), fingerprint)
+                else:
+                    with self.assertRaises(ValueError):
+                        verify_apk(Path("test.apk"))
+
+    def test_replaced_keystore_is_rejected_and_temporary_key_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"CB_SECRET_" + name: "value" for name in SECRET_NAMES}
+            env.update(CB_SECRET_ANDROID_SIGNING_KEY="YWJj", RUNNER_TEMP=tmp)
+            with patch.dict(os.environ, env), patch("android_signing.run_tool", return_value=b"wrong certificate"), \
+                    patch("android_signing.expected_fingerprint", return_value="a" * 64):
+                with self.assertRaisesRegex(ValueError, "refusing key rotation"):
+                    with keystore():
+                        self.fail("Wrong signing key was accepted")
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_signing_backups_and_keys_are_excluded_from_source_artifact(self):
+        for name in ("source/.custom-builder/.signing/passwords.json", "source/key.jks", "source/key.p12", "source/key.keystore", "source/key.pfx"):
+            with self.subTest(name=name):
+                self.assertIsNone(include_source_member(tarfile.TarInfo(name)))
+        self.assertIsNotNone(include_source_member(tarfile.TarInfo("source/config/android-signing.json")))
 
 
 if __name__ == "__main__":

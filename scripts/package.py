@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 
 from common import ROOT, decode_config
+from android_signing import require_secrets, verify_apk
 
 
 PATTERNS = {
@@ -33,12 +34,13 @@ def package(kind: str, source: Path):
     for pattern in PATTERNS[kind]:
         files.update(path for path in source.glob(pattern) if path.is_file())
     if kind.startswith("android"):
-        # When custom signing is enabled, do not distribute the debug-signed input APK.
-        signed = {path for path in files if path.name.endswith("-signed.apk")}
-        if os.environ.get("CB_SECRET_ANDROID_SIGNING_KEY"):
-            if not signed:
-                raise ValueError("Android signing configured but no signed APK produced")
-            files = signed
+        require_secrets()
+        files = {path for path in files if path.name.endswith("-signed.apk")}
+        if not files:
+            raise ValueError("No APK signed with the fixed certificate was produced")
+        fingerprints = {verify_apk(path) for path in files}
+        if len(fingerprints) != 1:
+            raise ValueError("Android APK signers are inconsistent")
     if not files:
         raise ValueError(f"No final output files produced for {kind}")
     if kind == "windows" and {path.suffix for path in files} != {".exe", ".msi"}:
@@ -58,7 +60,8 @@ def package(kind: str, source: Path):
         "architecture": os.environ.get("CB_MATRIX_ARCH", ""),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "run_url": f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}",
-        "android_signing": ("custom-keystore" if os.environ.get("CB_SECRET_ANDROID_SIGNING_KEY") else "debug-key") if kind.startswith("android") else None,
+        "android_signing": "fixed-release-keystore" if kind.startswith("android") else None,
+        "android_certificate_sha256": next(iter(fingerprints)) if kind.startswith("android") else None,
         "files": [path.name for path in destination.iterdir() if path.suffix != ".json"],
     }
     if kind == "linux_wayland":

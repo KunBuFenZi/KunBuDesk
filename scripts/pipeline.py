@@ -122,16 +122,23 @@ def adapted_steps(kind: str, directory: Path = ROOT / "upstream") -> tuple[list,
     env.update(UPLOAD_ARTIFACT="true", SIGN_BASE_URL="-2", MACOS_P12_BASE64="", TAG_NAME="custom")
     for key, value in list(env.items()):
         if isinstance(value, str) and "secrets." in value:
-            if key == "ANDROID_SIGNING_KEY":
-                env[key] = "${{ env.CB_SECRET_ANDROID_SIGNING_KEY }}"
-            else:
-                env[key] = ""
+            env[key] = ""
     steps = []
+    android_signing_steps = 0
     for original in job["steps"]:
         step = copy.deepcopy(original)
         name = step.get("name", "")
         uses = step.get("uses", "")
         if uses.startswith("actions/checkout@") or uses.startswith("softprops/action-gh-release@"):
+            continue
+        if platform == "android" and uses.startswith("r0adkll/sign-android-release@"):
+            android_signing_steps += 1
+            steps.append({
+                "name": "Sign and verify APK with fixed certificate", "shell": "bash",
+                "run": "python .custom-builder/scripts/android_signing.py sign",
+            })
+            continue
+        if platform == "android" and name == "Setup sign tool version variable":
             continue
         # The official signing server is intentionally never called.
         if "Sign rustdesk" in name or "MSI template" in name or name == "Upload unsigned msi template":
@@ -183,6 +190,8 @@ PY
         if uses.startswith("actions/cache@"):
             step["uses"] = "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830"  # v4.3.0
         steps.append(rewrite(step))
+    if platform == "android" and android_signing_steps != 1:
+        raise ValueError("Official Android signing stage changed; review needed")
     # Composite actions do not support secrets/matrix/workflow input contexts directly.
     encoded = json.dumps(steps)
     if "secrets." in encoded or "matrix." in encoded or "inputs." in encoded:

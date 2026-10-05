@@ -5,3 +5,8 @@ __pycache__/
 .generated/
 dist/
 .cache/
+.signing/
+*.jks
+*.keystore
+*.p12
+*.pfx

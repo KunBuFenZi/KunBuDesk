@@ -6,6 +6,7 @@ import os
 from common import ROOT, encode_config, github_output
 from configure import FIELDS, validate
 from pipeline import all_matrices, select_matrices
+from android_signing import check_keystore
 
 
 def prepare():
@@ -13,6 +14,8 @@ def prepare():
     config = validate({field: os.environ.get("INPUT_" + field.upper(), "").strip() or defaults.get(field, "") for field in FIELDS})
     lock = json.loads((ROOT / "upstream/lock.json").read_text(encoding="utf-8"))
     selected = select_matrices(os.environ.get("INPUT_PLATFORM", "all"), os.environ.get("INPUT_ARCH", "all"))
+    if selected["android"] or selected["android_universal"]:
+        check_keystore()
     all_jobs = all_matrices()
     outputs = {"commit": lock["commit"], "version": lock["tag"], "config": encode_config(config)}
     for kind, entries in selected.items():

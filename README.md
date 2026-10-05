@@ -69,16 +69,24 @@ App 名称用于客户端名称、窗口标题、安装包文件名、Windows MS
 
 - Windows 产物默认没有商业代码签名证书。
 - macOS 应用使用 ad-hoc 签名，没有 Apple Developer ID 公证；首次打开可能需要在系统设置中允许。
-- Android 未配置签名时采用官方工作流的调试签名，适合先验证安装。长期使用请设置下列仓库 Secrets，确保不同构建之间能正常覆盖升级。
+- Android 已配置固定发布证书，所有分架构 APK 和通用 APK、后续版本均复用同一份 keystore。证书只生成一次，编译流程不会重新生成；服务器地址、公钥和 App 显示名称的修改不会更换签名证书。
 
 | Android Secret | 内容 |
 |---|---|
-| `ANDROID_SIGNING_KEY` | 自己的 keystore 文件的 Base64 内容 |
+| `ANDROID_SIGNING_KEY` | 固定发布 keystore 文件的 Base64 内容 |
 | `ANDROID_ALIAS` | keystore alias |
 | `ANDROID_KEY_STORE_PASSWORD` | keystore 密码 |
 | `ANDROID_KEY_PASSWORD` | key 密码 |
 
-上述 Secrets 都不必配置即可开始编译。每个安装包 Artifact 包含 `build-info.json` 和 `SHA256SUMS.txt`。Artifact 保留 30 天；需要长期保存请下载备份。产物目前通过 Actions Artifact 下载，不自动创建公开 Release。
+本仓库的四项 Android Secrets 已保存，无需每次填写。只要选中 Android，工作流会在耗时编译之前检查 Secrets 和证书；缺少配置或证书指纹与 [`config/android-signing.json`](config/android-signing.json) 不符时直接失败，不会回退到临时调试签名。最终 APK 还会经过 Android SDK 的签名验证，只有固定证书签出的 APK 才会上传。`build-info.json` 记录其 `android_certificate_sha256`。
+
+私钥和密码不进入 Git、源码包或 Actions Artifact；构建期间的 keystore 放在临时目录，用完删除。电脑上的一次性备份保存在仓库目录的 `.signing/` 中，包含 `KunBuDesk-android-release.jks`、`credentials.json` 和备份说明，已被 Git 和源码打包流程排除。请把整个目录另行安全备份；GitHub Secrets 无法读回原值，丢失私钥和密码会影响后续覆盖升级。恢复时沿用备份原值，**不要生成新证书替换**。
+
+覆盖升级还要求 Android applicationId 保持一致和版本号符合系统要求。本仓库沿用官方 applicationId，新证书与官方 RustDesk 的签名不同，因此无法直接覆盖官方客户端；首次切换需先备份配置再卸载原客户端。以后本仓库各版本沿用固定签名。
+
+`Validate builder` 会用这份固定证书签一个临时测试 APK，验证签名和打包链路，测试包用完删除。它不代表完整 RustDesk 已编译成功。
+
+每个安装包 Artifact 包含 `build-info.json` 和 `SHA256SUMS.txt`。Artifact 保留 30 天；需要长期保存请下载备份。产物目前通过 Actions Artifact 下载，不自动创建公开 Release。
 
 ## 运行与费用
 

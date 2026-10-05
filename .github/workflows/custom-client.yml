@@ -95,6 +95,10 @@ jobs:
         INPUT_KEY: ${{ inputs.key }}
         INPUT_PLATFORM: ${{ inputs.platform }}
         INPUT_ARCH: ${{ inputs.arch }}
+        CB_SECRET_ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+        CB_SECRET_ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+        CB_SECRET_ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+        CB_SECRET_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       run: python scripts/prepare.py
   source:
     name: Archive corresponding source

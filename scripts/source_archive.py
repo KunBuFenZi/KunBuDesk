@@ -9,6 +9,15 @@ from common import ROOT, decode_config
 from configure import apply
 
 
+def include_source_member(member):
+    path = Path(member.name)
+    if any(part in {".git", ".venv", "__pycache__", "dist", ".generated", ".signing"} for part in path.parts):
+        return None
+    if path.suffix.lower() in {".jks", ".keystore", ".p12", ".pfx"}:
+        return None
+    return member
+
+
 def create(source: Path):
     config = apply(source, decode_config(os.environ["CLIENT_CONFIG_B64"]))
     (source / "custom-build-config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
@@ -16,14 +25,8 @@ def create(source: Path):
     output.mkdir(exist_ok=True)
     archive = output / f"{config['app_name']}-corresponding-source.tar.gz"
 
-    def include(member):
-        parts = Path(member.name).parts
-        if any(part in {".git", ".venv", "__pycache__", "dist", ".generated"} for part in parts):
-            return None
-        return member
-
     with tarfile.open(archive, "w:gz") as tar:
-        tar.add(source, arcname="source", filter=include)
+        tar.add(source, arcname="source", filter=include_source_member)
     print("Archived corresponding patched source, submodule, build recipes and scripts")
 
 
