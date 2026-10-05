@@ -236,13 +236,29 @@ class SigningTests(unittest.TestCase):
     def test_apk_must_have_exactly_one_pinned_signer(self):
         fingerprint = "a" * 64
         for digests in ([fingerprint], ["b" * 64], [fingerprint, "b" * 64], []):
-            output = "\n".join(f"Signer #{i + 1} certificate SHA-256 digest: {value}" for i, value in enumerate(digests)).encode()
+            output = (f"Number of signers: {len(digests)}\n" + "\n".join(f"Signer #{i + 1} certificate SHA-256 digest: {value}" for i, value in enumerate(digests))).encode()
             with self.subTest(digests=digests), patch("android_signing.sdk_tool", return_value="apksigner"), \
                     patch("android_signing.run_tool", return_value=output), \
                     patch("android_signing.expected_fingerprint", return_value=fingerprint):
                 if digests == [fingerprint]:
                     self.assertEqual(verify_apk(Path("test.apk")), fingerprint)
                 else:
+                    with self.assertRaises(ValueError):
+                        verify_apk(Path("test.apk"))
+
+    def test_sdk_certificate_labels_and_rotation_ranges(self):
+        fingerprint = "a" * 64
+        for labels in (["Signer #1 (certificate #1)"], ["Signer (minSdkVersion=23, maxSdkVersion=32)", "Signer (minSdkVersion=33, maxSdkVersion=2147483647)"]):
+            output = ("Number of signers: 1\n" + "\n".join(f"{label} certificate SHA-256 digest: {fingerprint}" for label in labels)).encode()
+            with self.subTest(labels=labels), patch("android_signing.sdk_tool", return_value="apksigner"), \
+                    patch("android_signing.run_tool", return_value=output), \
+                    patch("android_signing.expected_fingerprint", return_value=fingerprint):
+                self.assertEqual(verify_apk(Path("test.apk")), fingerprint)
+            if len(labels) == 2:
+                output = output.replace((labels[1] + " certificate SHA-256 digest: " + fingerprint).encode(), (labels[1] + " certificate SHA-256 digest: " + "b" * 64).encode())
+                with patch("android_signing.sdk_tool", return_value="apksigner"), \
+                        patch("android_signing.run_tool", return_value=output), \
+                        patch("android_signing.expected_fingerprint", return_value=fingerprint):
                     with self.assertRaises(ValueError):
                         verify_apk(Path("test.apk"))
 

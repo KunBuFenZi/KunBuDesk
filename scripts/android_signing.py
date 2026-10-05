@@ -85,9 +85,14 @@ def sdk_tool(name: str) -> str:
 
 def verify_apk(path: Path) -> str:
     output = run_tool([sdk_tool("apksigner"), "verify", "--verbose", "--print-certs", str(path)]).decode("utf-8")
-    fingerprints = re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)$", output, re.M)
-    if [value.lower() for value in fingerprints] != [expected_fingerprint()]:
-        raise ValueError(f"APK {path.name} does not have the single pinned Android signer")
+    # New SDK versions add certificate numbers / SDK ranges to signer labels.
+    # Require one signer and reject every certificate differing from the pin,
+    # including a rotated certificate reported for another Android SDK range.
+    counts = re.findall(r"^Number of signers: (\d+)[ \t\r]*$", output, re.M)
+    fingerprints = re.findall(r"^Signer[^\r\n]* certificate SHA-256 digest: ([0-9a-fA-F]{64})[ \t\r]*$", output, re.M)
+    if counts != ["1"] or not fingerprints or {value.lower() for value in fingerprints} != {expected_fingerprint()}:
+        # These certificate fingerprints are public; never include private tool output.
+        raise ValueError(f"APK {path.name} does not have the single pinned Android signer; public signer count={counts}, SHA256={fingerprints}")
     return fingerprints[0].lower()
 
 
