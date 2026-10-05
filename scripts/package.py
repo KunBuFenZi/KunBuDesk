@@ -17,6 +17,7 @@ PATTERNS = {
     "windows_legacy": ["SignOutput/*.exe"],
     "macos": ["rustdesk-*.dmg"],
     "linux": ["rustdesk-*.deb", "rustdesk-*.rpm"],
+    "linux_wayland": ["rustdesk-unattended-wayland-*-*.deb"],
     "linux_legacy": ["rustdesk-*-sciter.deb"],
     "appimage": ["appimage/rustdesk-*.AppImage"],
     "android": ["signed-apk/*-signed.apk", "signed-apk/rustdesk-*.apk"],
@@ -60,6 +61,8 @@ def package(kind: str, source: Path):
         "android_signing": ("custom-keystore" if os.environ.get("CB_SECRET_ANDROID_SIGNING_KEY") else "debug-key") if kind.startswith("android") else None,
         "files": [path.name for path in destination.iterdir() if path.suffix != ".json"],
     }
+    if kind == "linux_wayland":
+        info.update(experimental=True, build_variant="unattended-wayland", capture_backend="drm")
     (destination / "build-info.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     print(f"Packaged {len(files)} files for {kind}")
 

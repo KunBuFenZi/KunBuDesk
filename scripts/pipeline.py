@@ -26,6 +26,7 @@ JOBS = {
     "android": ("flutter-build.yml", "build-rustdesk-android", "android"),
     "android_universal": ("flutter-build.yml", "build-rustdesk-android-universal", "android"),
     "linux": ("flutter-build.yml", "build-rustdesk-linux", "linux"),
+    "linux_wayland": ("flutter-build.yml", "build-rustdesk-linux-drm", "linux"),
     "linux_legacy": ("flutter-build.yml", "build-rustdesk-linux-sciter", "linux"),
     "appimage": ("flutter-build.yml", "build-appimage", "linux"),
 }
@@ -66,6 +67,13 @@ def all_matrices(directory: Path = ROOT / "upstream") -> dict:
             matrix = [dict(item, configuration="Release", target_version="Windows10", arch="aarch64" if item["platform"] == "ARM64" else "x86_64") for item in matrix]
         if kind == "android_universal":
             matrix = [{"on": job["runs-on"], "arch": "universal"}]
+        if kind == "linux_wayland" and matrix is None:
+            toolchain = next(step for step in job["steps"]
+                             if step.get("uses", "").startswith("dtolnay/rust-toolchain@"))
+            target = toolchain["with"]["targets"]
+            if target != "x86_64-unknown-linux-gnu":
+                raise ValueError("Official fixed Wayland build target changed; review needed")
+            matrix = [{"on": job["runs-on"], "arch": "x86_64", "target": target}]
         if not isinstance(matrix, list) or not matrix:
             raise ValueError(f"Upstream job matrix changed: {job_name}")
         for item in matrix:
@@ -80,7 +88,7 @@ def all_matrices(directory: Path = ROOT / "upstream") -> dict:
 
 
 def select_matrices(platform: str, arch: str, directory: Path = ROOT / "upstream") -> dict:
-    if platform not in {"all", "windows", "linux", "macos", "android"}:
+    if platform not in {"all", "windows", "linux", "linux-wayland", "macos", "android"}:
         raise ValueError("Unknown platform")
     arch = {"arm64": "aarch64", "x64": "x86_64"}.get(arch, arch)
     if arch not in {"all", "x86_64", "aarch64", "x86", "armv7"}:
@@ -91,12 +99,13 @@ def select_matrices(platform: str, arch: str, directory: Path = ROOT / "upstream
         job_platform = JOBS[kind][2]
         selected[kind] = [entry for entry in entries
                           if job_platform != "helper"
-                          and (platform == "all" or platform == job_platform)
+                          and (platform == "all" or platform == job_platform
+                               or (platform == "linux-wayland" and kind == "linux_wayland"))
                           and (arch == "all" or entry["arch"] == arch)
                           and (kind != "android_universal" or arch == "all")]
     if not any(selected[kind] for kind in selected):
         raise ValueError(f"No supported targets for {platform}/{arch}")
-    modern = any(selected[kind] for kind in ("windows", "linux", "macos", "android"))
+    modern = any(selected[kind] for kind in ("windows", "linux", "linux_wayland", "macos", "android"))
     selected["bridge"] = all_jobs["bridge"] if modern else []
     if not any(item["arch"] == "aarch64" for item in selected["windows"]):
         selected["bridge"] = [item for item in selected["bridge"] if item["artifact-name"] == "bridge-artifact"]

@@ -57,6 +57,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual({entry["arch"] for entry in matrix["windows"]}, {"x86_64", "aarch64"})
         self.assertEqual([entry["arch"] for entry in matrix["windows_legacy"]], ["x86"])
         self.assertEqual({entry["arch"] for entry in matrix["linux"]}, {"x86_64", "aarch64"})
+        self.assertEqual([entry["arch"] for entry in matrix["linux_wayland"]], ["x86_64"])
         self.assertEqual([entry["arch"] for entry in matrix["linux_legacy"]], ["armv7"])
         self.assertEqual({entry["arch"] for entry in matrix["macos"]}, {"x86_64", "aarch64"})
         self.assertEqual({entry["arch"] for entry in matrix["android"]}, {"x86_64", "aarch64", "armv7"})
@@ -69,6 +70,34 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(matrix["android_universal"])
         self.assertEqual(len(matrix["bridge"]), 1)
         self.assertFalse(matrix["topmost"])
+        self.assertFalse(matrix["linux_wayland"])
+
+    def test_linux_includes_wayland_only_for_supported_architecture(self):
+        for arch in ("all", "x86_64"):
+            with self.subTest(arch=arch):
+                self.assertEqual(len(select_matrices("linux", arch)["linux_wayland"]), 1)
+        for arch in ("arm64", "armv7"):
+            with self.subTest(arch=arch):
+                self.assertFalse(select_matrices("linux", arch)["linux_wayland"])
+
+    def test_standalone_wayland_build_has_its_bridge_dependency(self):
+        selected = select_matrices("linux-wayland", "x86_64")
+        self.assertEqual(len(selected["linux_wayland"]), 1)
+        self.assertEqual([item["artifact-name"] for item in selected["bridge"]], ["bridge-artifact"])
+        for kind in ("windows", "macos", "android", "linux", "linux_legacy", "appimage"):
+            self.assertFalse(selected[kind])
+        with self.assertRaises(ValueError):
+            select_matrices("linux-wayland", "arm64")
+
+    def test_wayland_keeps_drm_build_and_verification(self):
+        steps, _ = adapted_steps("linux_wayland")
+        build = next(step for step in steps if step.get("name") == "Build rustdesk")
+        self.assertIn('drm', build["with"]["run"])
+        self.assertTrue(any(step.get("name") == "Build libdrmtap" for step in steps))
+        check = next(step for step in steps if step.get("name") == "Check the deb is a drm build")
+        self.assertIn("libdrmtap.so.0", check["run"])
+        # Upload the final package only after verification, not on a failed DRM check.
+        self.assertFalse(any(step.get("uses", "").startswith("actions/upload-artifact@") for step in steps))
 
     def test_legacy_targets_need_no_bridge(self):
         matrix = select_matrices("windows", "x86")
@@ -104,6 +133,20 @@ class PipelineTests(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_wayland_package_is_distinct_and_marked_experimental(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)
+            (source / "rustdesk-unattended-wayland-1.5.0-x86_64.deb").write_bytes(b"experimental")
+            (source / "rustdesk-1.5.0-x86_64.deb").write_bytes(b"standard")
+            with patch.dict(os.environ, {"CLIENT_CONFIG_B64": encode_config(SMOKE_CONFIG), "CB_MATRIX_ARCH": "x86_64"}):
+                package("linux_wayland", source)
+            output = source / ".custom-builder/dist"
+            self.assertTrue((output / "BuildSmoke-unattended-wayland-1.5.0-x86_64.deb").exists())
+            self.assertFalse((output / "BuildSmoke-1.5.0-x86_64.deb").exists())
+            info = json.loads((output / "build-info.json").read_text())
+            self.assertTrue(info["experimental"])
+            self.assertEqual(info["capture_backend"], "drm")
+
     def test_windows_outputs_complete_and_named(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp)

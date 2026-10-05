@@ -19,7 +19,7 @@
 | `relay_server` | 中继服务器，例如 `rd.example.com:21117`；可留空，使用客户端的中继发现逻辑。 |
 | `api_server` | API 地址，例如 `https://rd.example.com`；普通开源 RustDesk Server 没有 API 时留空。 |
 | `key` | 服务端 `id_ed25519.pub` 文件中的 Base64 **公钥**，不是私钥。 |
-| `platform` | `all`、`windows`、`linux`、`macos`、`android`。 |
+| `platform` | `all`、`windows`、`linux`、`linux-wayland`、`macos`、`android`。 |
 | `arch` | `all`、`x86_64`、`arm64`、`x86`、`armv7`。 |
 
 ID Server 和 Key 必须提供。IPv6 用 `[2001:db8::1]:21116` 形式。参数通过环境变量交给脚本，经过校验后写入源码，不作为命令执行。
@@ -33,12 +33,17 @@ ID Server 和 Key 必须提供。IPv6 用 `[2001:db8::1]:21116` 形式。参数�
 | Windows | x86_64 / ARM64 | 便携 EXE、MSI |
 | Windows | x86（32 位） | Sciter 版便携 EXE |
 | Linux | x86_64 / ARM64 | DEB、RPM、AppImage |
+| Linux Wayland 实验版 | x86_64 | 官方 unattended-wayland / DRM 版 DEB |
 | Linux | ARMv7（armhf） | Sciter 版 DEB |
 | macOS | x86_64（Intel）/ ARM64（Apple Silicon） | DMG，内含自定义名称的 `.app` |
 | Android | ARMv7 / ARM64 / x86_64 | 分架构 APK |
 | Android | 通用 | 同时包含上述三种架构的 APK；选择 Android + all 或 all + all 时生成 |
 
 `arm64` 对应官方构建中的 `aarch64`。不支持的组合（例如 macOS + ARMv7）会在构建开始前报错。官方工具链、运行环境和平台补丁均来自锁定稳定版的官方工作流。
+
+选择 `platform=linux` 或 `all`，并选择 `arch=all` 或 `x86_64`，会同时构建普通 Linux 版本和 Wayland 实验版。只想编译实验版时，选择 `platform=linux-wayland`，`arch=x86_64` 或 `all`。
+
+Wayland 实验版复用官方 `build-rustdesk-linux-drm` 流程，用于测试 Wayland 下的无人值守屏幕捕获。下载产物为 **`client-linux-wayland-x86_64`**，内含 `KunBuDesk-unattended-wayland-版本-x86_64.deb`；若更改 App 名称，文件名前缀也相应变化。构建会保留官方对 DRM 特性和 `libdrmtap` 的检查，`build-info.json` 也会标记为实验版。当前官方只提供该实验版的 x86_64 DEB，没有 ARM64/ARMv7 或对应的 RPM/AppImage 实验包；实际效果取决于桌面环境和显卡驱动。
 
 App 名称用于客户端名称、窗口标题、安装包文件名、Windows MSI 产品名、macOS 应用包名和 Android 应用标签。图标、Logo 和内部包标识沿用官方；Linux 的命令、软件包名和服务仍为 `rustdesk`，避免服务管理与安装脚本不一致。这是应用名称定制，并不包含完整的企业品牌替换或修改 Android applicationId。
 
