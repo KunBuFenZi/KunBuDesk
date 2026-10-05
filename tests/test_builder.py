@@ -18,6 +18,10 @@ from sync_upstream import SMOKE_CONFIG, verify_recipes
 
 
 class ConfigTests(unittest.TestCase):
+    def test_config_fields_are_strings(self):
+        with self.assertRaises(ValueError):
+            validate({**SMOKE_CONFIG, "relay_server": 123})
+
     def test_valid_servers_and_base64_roundtrip(self):
         config = validate(SMOKE_CONFIG)
         self.assertEqual(decode_config(encode_config(config)), config)

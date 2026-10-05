@@ -13,6 +13,8 @@ FIELDS = ("app_name", "id_server", "relay_server", "api_server", "key")
 
 
 def validate(config: dict) -> dict:
+    if any(not isinstance(config.get(field, ""), str) for field in FIELDS):
+        raise ValueError("Client configuration fields must be strings")
     config = {field: config.get(field, "").strip() for field in FIELDS}
     name = config["app_name"]
     # Safe across Windows services, WiX, macOS paths, XML and shell packaging.
@@ -94,7 +96,8 @@ def apply(source: Path, raw_config: dict):
     replacements = {
         "flutter/android/app/src/main/AndroidManifest.xml": [
             ('android:label="RustDesk"', f'android:label="{name}"'),
-            ('android:label="RustDesk Input"', f'android:label="{name} Input"')],
+            ('android:label="RustDesk Input"', f'android:label="{name} Input"'),
+            ('android:scheme="rustdesk"', f'android:scheme="{name.lower()}"')],
         "flutter/windows/runner/Runner.rc": [
             ('VALUE "ProductName", "RustDesk"', f'VALUE "ProductName", "{name}"'),
             ('VALUE "FileDescription", "RustDesk Remote Desktop"', f'VALUE "FileDescription", "{name} Remote Desktop"')],
@@ -131,6 +134,11 @@ def apply(source: Path, raw_config: dict):
     text = path.read_text(encoding="utf-8")
     text = replace_one(text, "Name=RustDesk\n", f"Name={name}\n", path)
     path.write_text(text, encoding="utf-8")
+    path = source / "res/rustdesk-link.desktop"
+    text = path.read_text(encoding="utf-8")
+    text = replace_one(text, "Name=RustDesk\n", f"Name={name}\n", path)
+    text = replace_one(text, "MimeType=x-scheme-handler/rustdesk;", f"MimeType=x-scheme-handler/{name.lower()};", path)
+    path.write_text(text, encoding="utf-8")
     # Linux retains upstream executable/service/package identifiers. The display name
     # and config-directory name can change independently without breaking systemctl.
     path = source / "src/platform/linux.rs"
@@ -138,6 +146,10 @@ def apply(source: Path, raw_config: dict):
     if "crate::get_app_name().to_lowercase()" not in text:
         raise ValueError("Upstream Linux service naming changed")
     text = text.replace("crate::get_app_name().to_lowercase()", '"rustdesk".to_owned()')
+    # switch_service copies the application's own config, whose directory follows
+    # APP_NAME even though the installed systemd service retains the upstream name.
+    text = replace_one(text, 'let app_name_lower = "rustdesk".to_owned();',
+                       "let app_name_lower = crate::get_app_name().to_lowercase();", path)
     path.write_text(text, encoding="utf-8")
     path = source / "src/core_main.rs"
     text = path.read_text(encoding="utf-8")

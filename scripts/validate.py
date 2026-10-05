@@ -33,6 +33,14 @@ def validate(source: Path | None = None, lint_directory: Path | None = None):
         for value in config.values():
             if value and value not in text:
                 raise AssertionError("Expected client defaults are missing from patched source")
+        linux = (copy / "src/platform/linux.rs").read_text(encoding="utf-8")
+        if "let app_name_lower = crate::get_app_name().to_lowercase();" not in linux:
+            raise AssertionError("Linux config-copy directory must still follow the custom App name")
+        if 'let app_name = "rustdesk".to_owned();' not in linux:
+            raise AssertionError("Linux service management must use the installed upstream service name")
+        manifest = (copy / "flutter/android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        if 'android:scheme="buildsmoke"' not in manifest:
+            raise AssertionError("Android URI scheme must match the runtime App name")
         if lint_directory:
             lint_directory.mkdir(parents=True, exist_ok=True)
             for kind, matrices in all_matrices().items():

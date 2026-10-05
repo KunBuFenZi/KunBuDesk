@@ -17,6 +17,9 @@ if old_executable != new_executable:
 data["CFBundleExecutable"] = name
 data["CFBundleName"] = name
 data["CFBundleDisplayName"] = name
+for url_type in data.get("CFBundleURLTypes", []):
+    url_type["CFBundleURLSchemes"] = [name.lower() if scheme == "rustdesk" else scheme
+                                     for scheme in url_type.get("CFBundleURLSchemes", [])]
 with info.open("wb") as file:
     plistlib.dump(data, file)
 renamed = app.with_name(name + ".app")

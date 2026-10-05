@@ -45,7 +45,7 @@ def sync(force: bool = False):
     from urllib.parse import quote
     commit = api(f"repos/{OFFICIAL_REPO}/commits/{quote(tag, safe='')}")["sha"]
     submodule = api(f"repos/{OFFICIAL_REPO}/contents/libs/hbb_common?ref={commit}")
-    if submodule.get("submodule_git_url", "").rstrip(".git") != "https://github.com/rustdesk/hbb_common":
+    if submodule.get("submodule_git_url", "").removesuffix(".git") != "https://github.com/rustdesk/hbb_common":
         raise ValueError("Official submodule repository changed; review needed")
     candidate = {
         "repository": OFFICIAL_REPO, "channel": "stable", "tag": tag,
