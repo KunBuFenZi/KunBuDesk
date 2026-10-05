@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from common import ROOT, decode_config, encode_config, load_yaml
 from configure import validate
 from android_signing import SECRET_NAMES, keystore, require_secrets, verify_apk
+from action_versions import current_actions
 from package import package
 from pipeline import JOBS, adapted_steps, all_matrices, select_matrices
 from sync_upstream import SMOKE_CONFIG, verify_recipes
@@ -114,6 +115,29 @@ class PipelineTests(unittest.TestCase):
 
     def test_all_recipes_are_adaptable(self):
         verify_recipes(ROOT / "upstream")
+
+    def test_upstream_cannot_restore_obsolete_action_versions(self):
+        versions = current_actions()
+        self.assertGreaterEqual(int(versions["actions/checkout"].removeprefix("v")), 7)
+        self.assertGreaterEqual(int(versions["actions/setup-python"].removeprefix("v")), 7)
+        cache_steps = []
+        for kind in JOBS:
+            for step in adapted_steps(kind)[0]:
+                uses = step.get("uses", "")
+                repo = uses.partition("@")[0]
+                if repo in versions:
+                    self.assertEqual(uses, repo + "@" + versions[repo])
+                if repo == "actions/cache":
+                    cache_steps.append(uses)
+        self.assertTrue(cache_steps)
+        self.assertEqual(set(cache_steps), {"actions/cache@" + versions["actions/cache"]})
+
+    def test_new_flutter_action_preserves_windows_arm64_bootstrap(self):
+        steps, _ = adapted_steps("windows")
+        bootstrap = next(step for step in steps if step.get("name") == "Force arm64 Dart SDK + engine")
+        self.assertIn("steps.flutter.outputs['cache-path']", bootstrap["run"])
+        self.assertNotIn("outputs['CACHE-PATH']", bootstrap["run"])
+        self.assertIn("windows_arm64", bootstrap["run"])
 
     def test_no_author_signing_service_or_release(self):
         for kind in JOBS:

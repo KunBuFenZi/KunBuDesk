@@ -13,9 +13,7 @@ import re
 
 import yaml
 from common import ROOT, load_yaml
-
-CHECKOUT = "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"
-UPLOAD = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+from action_versions import modern_action
 
 JOBS = {
     "bridge": ("bridge.yml", "generate_bridge", "helper"),
@@ -46,6 +44,9 @@ def rewrite(value):
     value = re.sub(r"matrix\.job\.([A-Za-z0-9_-]+)",
                    lambda m: "env." + matrix_env_key(m[1]), value)
     value = value.replace("inputs.upload-artifact", "true").replace("inputs.upload-tag", "'custom'")
+    # flutter-action v2 now exposes lowercase public output names. Preserve the
+    # official ARM64 Dart bootstrap while upgrading its old v2.12 action.
+    value = value.replace("steps.flutter.outputs['CACHE-PATH']", "steps.flutter.outputs['cache-path']")
     for key in ("target", "configuration", "platform", "target_version"):
         value = value.replace("inputs." + key, "env." + matrix_env_key(key))
     value = re.sub(r"secrets\.([A-Z0-9_]+)", lambda m: "env.CB_SECRET_" + m[1], value)
@@ -187,8 +188,8 @@ PY
 '''
         if "run" in step:
             step.setdefault("shell", "pwsh" if platform == "windows" or kind == "topmost" else "bash")
-        if uses.startswith("actions/cache@"):
-            step["uses"] = "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830"  # v4.3.0
+        if uses:
+            step["uses"] = modern_action(uses)
         steps.append(rewrite(step))
     if platform == "android" and android_signing_steps != 1:
         raise ValueError("Official Android signing stage changed; review needed")

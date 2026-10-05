@@ -109,6 +109,10 @@ tests/                               参数、架构选择与产物校验测试
 
 工作流在运行时把官方步骤转为本地 composite action，使用锁定提交的官方源码构建。这样同步源代码和官方构建模板不需要具有工作流写入权限的额外 Token。
 
+常用 Actions 采用当前稳定主版本：checkout/setup-python v7、cache v6、github-script v9、upload-artifact v7 和 download-artifact v8，均使用 Node.js 24。维护者发布兼容的小版本时自动跟进，无需逐个修改提交 SHA。生成官方编译步骤时会统一替换旧的 Actions 引用，后续同步 RustDesk 稳定版也不会把这些组件降回旧版。Dependabot 每月把新的 Actions 大版本更新汇总为一个 PR，通过检查并合并后生效；这些工作流版本也会用于生成的编译步骤。
+
+LLVM 安装组件目前最新正式版仍声明 Node.js 20，Windows 32 位专用组件则来自官方定制版本，暂时保留兼容实现；GitHub 会以 Node.js 24 运行它们，完整 Windows 编译时仍可能看到这一组件的弃用提醒。
+
 本地验证：
 
 ```sh
